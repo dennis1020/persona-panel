@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Synthetic Consumer Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">EST 440 · Synthetic respondent experiment</p>
+  <h1>Synthetic Consumer Panel</h1>
+  <p class="lede">Does telling people an ad was made with AI change how much they trust it? Set up a panel of LLM-simulated consumers, show each one a single version of an ad, and compare the two conditions. Every persona is one independent call to the Claude API, and every request and raw answer is kept.</p>
+  <p class="note">Respondents are simulated, not real consumers. Results show how the model represents these groups and should be checked against a small human sample.</p>
+</header>
+
+<!-- 01 SETUP -->
+<section id="setup">
+  <h2><span class="num">01</span>Setup</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Claude API</h3>
+      <label for="apiKey">API key</label>
+      <input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-...">
+      <label class="check"><input id="rememberKey" type="checkbox"> Remember the key in this browser</label>
+      <p class="hint">The key is sent only to api.anthropic.com from this browser. Never commit it to GitHub.</p>
+      <div class="row2">
+        <div>
+          <label for="model">Model</label>
+          <input id="model" list="modelList">
+          <datalist id="modelList">
+            <option value="claude-haiku-5-5">
+            <option value="claude-sonnet-5-5">
+            <option value="claude-opus-5-5">
+          </datalist>
+        </div>
+        <div>
+          <label for="temperature">Temperature</label>
+          <input id="temperature" type="number" min="0" max="1" step="0.1">
+        </div>
+      </div>
+      <div class="actions"><button id="testKey" type="button">Test key</button><span id="keyStatus" class="hint" role="status"></span></div>
+    </div>
+
+    <div class="card">
+      <h3>Sample</h3>
+      <label for="ages">Age groups <span class="hint">(one per line: label | min | max)</span></label>
+      <textarea id="ages" rows="4" spellcheck="false"></textarea>
+      <div class="row3">
+        <div><label for="perCell">Per cell</label><input id="perCell" type="number" min="1" max="100" step="1"></div>
+        <div><label for="concurrency">Parallel</label><input id="concurrency" type="number" min="1" max="8" step="1"></div>
+        <div><label for="seed">Seed</label><input id="seed" type="number" step="1"></div>
+      </div>
+      <p class="hint"><b>Per cell</b>: personas in each combination of age group, factor levels and condition. <b>Parallel</b>: API calls sent at once. <b>Seed</b>: fixes each persona's exact age and the run order, so the same settings give the same panel.</p>
+    </div>
+
+    <div class="card span2">
+      <div class="cardhead"><h3>Persona factors</h3><button id="addFactor" type="button">Add factor</button></div>
+      <p class="hint">Levels: one per line as <code>Label | text the persona sees</code>. Untick a factor to leave it out of the design.</p>
+      <div id="factors" class="factors"></div>
+    </div>
+
+    <div class="card span2">
+      <div class="cardhead"><h3>Background traits (random)</h3><button id="addTrait" type="button">Add trait</button></div>
+      <p class="hint">Each persona gets one option from every ticked trait, drawn at random with the seed. Traits make the people in a cell differ from each other, as real respondents do, without adding cells to the design. Options: one per line as <code>Label | text the persona sees</code>.</p>
+      <div id="traits" class="factors"></div>
+    </div>
+
+    <div class="card">
+      <h3>Stimulus</h3>
+      <div class="stack">
+        <div class="actions">
+          <label class="filebtn" for="imageFile">Upload ad image</label>
+          <input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+          <span id="imageName" class="hint"></span>
+        </div>
+        <div class="previews">
+          <figure><div class="thumb"><img id="prevNone" alt="Ad as shown with no disclosure"></div><figcaption><span class="chip none">No disclosure</span></figcaption></figure>
+          <figure><div class="thumb"><img id="prevDisc" alt="Ad as shown with the AI label"></div><figcaption><span class="chip disclosed">AI disclosed</span></figcaption></figure>
+        </div>
+        <label for="imageLabel">Label drawn on the image (disclosed condition only)</label>
+        <input id="imageLabel">
+        <p class="hint">Claude sees the image itself. Video is not supported, so for a video ad use one key frame.</p>
+      </div>
+      <label for="ad">Caption under the image (optional)</label>
+      <textarea id="ad" rows="4"></textarea>
+    </div>
+
+    <div class="card">
+      <h3>Prompt template</h3>
+      <p class="hint"><code>{profile}</code> becomes the persona's lines, <code>{ad}</code> points to the image, which is sent before the text, plus the caption if there is one.</p>
+      <textarea id="template" rows="12" spellcheck="false" class="mono"></textarea>
+    </div>
+  </div>
+
+  <div class="card plan">
+    <div id="planText" class="plantext"></div>
+    <p id="configError" class="error" role="alert"></p>
+    <div class="actions">
+      <button id="createRun" class="primary" type="button">Create panel from these settings</button>
+      <button id="resetDefaults" type="button">Restore default settings</button>
+    </div>
+  </div>
+</section>
+
+<!-- 02 RUN -->
+<section id="run">
+  <h2><span class="num">02</span>Run</h2>
+  <div class="card">
+    <div class="controls">
+      <button id="run1" class="primary" type="button">Run 1 persona</button>
+      <button id="run10" type="button">Run next 10</button>
+      <button id="runAll" type="button">Run all remaining</button>
+      <button id="stop" type="button">Stop</button>
+      <div class="progress">
+        <div class="bar" aria-hidden="true"><i class="n" id="barN"></i><i class="d" id="barD"></i></div>
+        <span class="ptext" id="ptext"></span>
+      </div>
+    </div>
+    <p id="status" class="status" role="status"></p>
+  </div>
+  <div class="steps">
+    <div class="step" id="s1"><div class="sh"><b>STEP 1</b><h3>Persona</h3></div><div class="sb" id="s1b"><p class="empty">The next persona appears here.</p></div></div>
+    <div class="step" id="s2"><div class="sh"><b>STEP 2</b><h3>API request</h3></div><div class="sb" id="s2b"><p class="empty">The exact request body sent to Claude.</p></div></div>
+    <div class="step" id="s3"><div class="sh"><b>STEP 3</b><h3>Raw response</h3></div><div class="sb" id="s3b"><p class="empty">Claude's unedited answer.</p></div></div>
+    <div class="step" id="s4"><div class="sh"><b>STEP 4</b><h3>Recorded row</h3></div><div class="sb" id="s4b"><p class="empty">The parsed scores saved to the dataset.</p></div></div>
+  </div>
+</section>
+
+<!-- 03 LOG -->
+<section id="log">
+  <h2><span class="num">03</span>Response log</h2>
+  <div class="controls">
+    <p class="hint grow">Click a row to load its persona, request and raw answer into the steps above.</p>
+    <button id="exportCsv" type="button">Download CSV</button>
+    <button id="exportJson" type="button">Save run (JSON)</button>
+    <label class="filebtn" for="importJson">Load run (JSON)</label>
+    <input id="importJson" type="file" accept="application/json,.json" hidden>
+  </div>
+  <div class="logwrap"><table>
+    <thead id="logHead"></thead>
+    <tbody id="logBody"></tbody>
+  </table></div>
+</section>
+
+<!-- 04 RESULTS -->
+<section id="results">
+  <h2><span class="num">04</span>Results</h2>
+  <div id="resultsBody"></div>
+</section>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
